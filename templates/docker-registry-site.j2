@@ -1,0 +1,45 @@
+upstream registry {
+  server {{ansible_eth0.ipv4.address}}:5000;
+}
+
+server {
+  listen 0.0.0.0:443 default_server;
+  listen [::]:443 default_server;
+  server_name docker-repo.cloudapp.net; 
+  server_tokens off; ## Don't show the nginx version number
+
+  # disable any limits to avoid HTTP 413 for large image uploads
+  client_max_body_size 0; 
+
+  proxy_set_header Host       $http_host;   # required for Docker client sake
+  proxy_set_header X-Real-IP  $remote_addr; # pass on real client IP
+
+  # required to avoid HTTP 411: see Issue #1486 
+  # https://github.com/dotcloud/docker/issues/1486
+  chunked_transfer_encoding on;
+
+  ssl on;
+  ssl_certificate /etc/docker/docker-registry/certs/docker-registry.crt;
+  ssl_certificate_key /etc/docker/docker-registry/certs/docker-registry.key;
+
+  location / {
+    ## If you use HTTPS make sure you disable gzip compression
+    ## to be safe against BREACH attack.
+    # gzip off;
+
+    ## Some requests take more than 30 seconds.
+    proxy_read_timeout      300;
+    proxy_connect_timeout   300;
+    proxy_redirect          off;
+
+    proxy_set_header    Host                $http_host;
+    proxy_set_header    X-Real-IP           $remote_addr;
+    proxy_set_header    X-Forwarded-For     $proxy_add_x_forwarded_for;
+    proxy_set_header    X-Forwarded-Proto   $scheme;
+    proxy_set_header    X-Frame-Options     SAMEORIGIN;
+
+    proxy_pass http://registry;
+  }
+
+  error_page 502 /502.html;
+}

@@ -1,0 +1,12 @@
+{{ container_log_file }} {
+  rotate 7
+  daily
+  compress
+  missingok
+  notifempty
+  delaycompress
+  sharedscripts
+  postrotate
+          reload rsyslog >/dev/null 2>&1 || true
+  endscript
+}

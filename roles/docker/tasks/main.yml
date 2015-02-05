@@ -1,0 +1,101 @@
+---
+- name: Add Docker repository key
+  apt_key: id={{apt_key_sig}} keyserver={{apt_key_server}} state=present
+
+- name: Add Docker repository and update apt cache
+  apt_repository: repo='{{apt_repository}}' state=present
+
+- name: Install (or update) docker package
+  apt: name='{{docker_pkg_name}}' state=present
+
+- name: Install pip python package
+  apt:
+    pkg: "{{ item }}"
+    state: latest
+  with_items:
+    - python-dev
+    - python-pip
+
+- name: Install Docker-py
+  pip: 
+    name: docker-py
+
+- name: Check if /etc/updatedb.conf exists
+  stat: 
+    path: /etc/updatedb.conf
+  register: updatedb_conf_exists
+
+- name: Ensure updatedb does not index /var/lib/docker
+  shell: >
+    ex -s -c '/PRUNEPATHS=/v:/var/lib/docker:s:"$: /var/lib/docker"' \
+          -c 'wq' /etc/updatedb.conf
+  when: updatedb_conf_exists.stat.exists
+
+- name: Check if /etc/default/ufw exists
+  stat: 
+    path: /etc/default/ufw
+  register: ufw_default_exists
+
+- name: Change ufw default forward policy from drop to accept
+  lineinfile: 
+    dest: /etc/default/ufw 
+    regexp: "^DEFAULT_FORWARD_POLICY=" 
+    line: "DEFAULT_FORWARD_POLICY=\"ACCEPT\""
+  when: ufw_default_exists.stat.exists
+
+- name: Start docker
+  service: name=docker state=started
+
+- name: Create docker directory
+  file: path=/etc/docker state=directory
+
+- name: copy dockercfg for docker private registry
+  copy: src=~/.dockercfg dest=/etc/docker/.dockercfg
+
+- name: copy dockercfg for docker private registry to root
+  copy: src=~/.dockercfg dest=/root/.dockercfg
+
+- name: copy docker certifcates
+  copy: >
+    src=/usr/local/share/ca-certificates/docker-dev-cert 
+    dest=/usr/local/share/ca-certificates/
+  notify:
+    - Update certifcates
+    - Restart docker
+
+# Now that docker is up, lets find the bridge ip address and update dns with it
+- name: Get bridge ip
+  shell: /sbin/ip route|awk '/docker0/ { print $NF }'
+  register: result
+  ignore_errors: true
+  when: docker_dns == ""
+
+- set_fact:
+    docker_dns: "{{result.stdout}}"
+  when: docker_dns == ""
+
+- debug: msg=docker_dns ip is {{docker_dns}}
+
+- name: Update docker defaults
+  copy:
+    content: "DOCKER_OPTS=\"--dns={{docker_dns}} --dns-search={{ docker_dns_search }}\""
+    dest: /etc/default/docker
+    owner: root
+    group: root
+    mode: 0744
+  when: docker_dns != ""
+  notify:
+    - Reload docker
+
+- name: setup rsyslog conf to capture container logs
+  template: src=container.conf.j2 dest=/etc/rsyslog.d/21-container.conf
+  notify:
+    - Restart rsyslog
+
+- name: Update rsyslog for udp support
+  template: src=rsyslog.conf.j2 dest=/etc/rsyslog.conf
+  notify:
+    - Restart rsyslog
+
+- name: Create logrotate entry for docker container logs
+  template: src=etc_logrotate_d.conf.j2 dest=/etc/logrotate.d/container owner=root group=root mode=0644

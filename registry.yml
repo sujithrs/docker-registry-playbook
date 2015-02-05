@@ -1,0 +1,72 @@
+---  
+- hosts: [repos]
+  sudo: yes
+  roles: 
+    - role: docker 
+
+  tasks:
+    - name: create docker registry conf dir
+      file: path=/etc/docker/docker-registry state=directory
+
+#    - name: download busybox
+#      shell: docker pull busybox
+
+    - name: create registry data container
+      docker:
+        image: busybox
+        name: docker-registry-data
+        volumes: /data
+        command: /bin/true
+
+#    - name: download registry
+#      shell: docker pull registry
+
+    - name: Start registry container
+      tags: ["docker", "registry"]
+      docker:
+        image: registry
+        name: docker-registry
+        state: running
+        volumes_from: docker-registry-data
+        ports: "5000:5000"
+
+    - ufw: rule=allow direction=in proto=tcp src=172.17.0.0/16 to_port=5000
+
+    - ufw: rule=allow direction=in proto=tcp src=172.17.0.0/16 to_port=443
+
+    - name: create nginx config dir
+      file: path=/etc/docker/nginx/sites-enabled state=directory
+
+    - name: create nginx certs dir
+      file: path=/etc/docker/docker-registry/certs state=directory
+
+    - name: create nginx.conf config 
+      template: src=templates/nginx.conf.j2 dest=/etc/docker/nginx/nginx.conf
+
+    - name: create docker-registry-site
+      template: >
+        src=templates/docker-registry-site.j2 
+        dest=/etc/docker/nginx/sites-enabled/docker-registry-site
+
+    - name: copy certifcates
+      copy: >
+        src=~/certs/docker-registry/
+        dest=/etc/docker/docker-registry/certs/
+        mode=0600
+      notify:
+        - Update certifcates
+        - Restart docker
+
+#    - name: download nginx
+#      shell: docker pull nginx
+
+    - name: create nginx container
+      docker:
+        image: nginx
+        name: nginx
+        state: running
+        ports: "80:80,443:443"
+        volumes: 
+        - /etc/docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+        - /etc/docker/nginx/sites-enabled:/etc/nginx/sites-enabled
+        - /etc/docker/docker-registry/certs:/etc/docker/docker-registry/certs

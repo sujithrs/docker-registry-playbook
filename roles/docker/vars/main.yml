@@ -1,0 +1,25 @@
+---
+# lxc-docker is the default
+docker_pkg_name: lxc-docker
+  #
+# Place to get apt repository key
+apt_key_server: keyserver.ubuntu.com
+# apt repository key signature
+#apt_key_sig: 36A1D7869245C8950F966E92D8576A8BA88D21E9
+# Make sure either the key is 8 byte short form or
+# 16 bit long form. If it's not either, ansible state
+# always return false.
+apt_key_sig: D8576A8BA88D21E9
+
+
+# Name of the apt repository for docker
+apt_repository: deb http://get.docker.io/ubuntu docker main
+
+# Docker options
+docker_dns: ""
+
+docker_dns_search: "mesos"
+
+container_log_facility: "local5"
+container_log_priority: "notice"
+container_log_file: "/var/log/container/notice"
